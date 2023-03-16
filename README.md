@@ -13,6 +13,7 @@ FFmpeg is a free and open-source software for handling videos. It is a cross-pla
 ### Installing FFmpeg
 
 Solution 1: 
+
 Use `homebrew` to install `FFmpeg` in the terminal
 ```
 brew install ffmpeg
@@ -20,6 +21,7 @@ brew install ffmpeg
 Then, copy the installed folder to the directory `/usr/local/bin`. 
 
 Solution 2: 
+
 Download the software from [the official website](https://ffmpeg.org/download.html).
 
 Follow the instructions in the `INSTALL.md` document.
