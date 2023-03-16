@@ -1,0 +1,21 @@
+---
+title: "Video Analysis"
+author: "Iris Zhong"
+date: '2023-03-16'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(imager)
+library(usethis)
+```
+
+```{r}
+system('/usr/local/bin/ffmpeg/ffmpeg -hide_banner  -i videos/interview.mp4')
+```
+
+```{r}
+interview <- load.video('videos/interview.mp4')
+```
+
