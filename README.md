@@ -8,10 +8,12 @@ I am using MacOS, and the troubleshooting and instructions below might not work 
 
 ## FFmpeg
 
-FFmpeg is a free and open-source software for handling videos. 
+FFmpeg is a free and open-source software for handling videos. It is a cross-platform command line tool. Some of its helpful functions are included in [this website](https://www.labnol.org/internet/useful-ffmpeg-commands/28490/). 
+
+### Installing FFmpeg
 
 Solution 1: 
-Use `homebrew` to install FFmpeg in the terminal
+Use `homebrew` to install `FFmpeg` in the terminal
 ```
 brew install ffmpeg
 ```
