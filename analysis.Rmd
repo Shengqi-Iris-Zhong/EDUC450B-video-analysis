@@ -1,5 +1,5 @@
 ---
-title: "Video Analysis"
+title: "EDUC 450B Final Project"
 author: "Iris Zhong"
 date: '2023-03-16'
 output: html_document
@@ -9,13 +9,206 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 library(imager)
 library(usethis)
+library(base64enc)
+library(httr)
+library(jpeg)
+library(jsonlite)
+library(base64url)
+```
+
+# Introduction
+
+In class, we learned about the process of parsing videos into smaller segments for analysis. By breaking down videos into their constituent parts and observing how each segment begins and ends, we can gain insights into the activity occurring within the video and the transitions between segments.
+
+From another perspective, there may be additional valuable information that we can uncover by separating the video's visual and auditory components and analyzing them independently. For example, advanced AI algorithms can classify objects and agents in images and detect human emotions, which could be useful in understanding the visual aspects of a video. Using audio sentimental analysis (understanding speaker's sentiment from their tone and spoken words), AI can identify emotions from the audio as well. On one hand, segmenting videos into the unit of frames and speech tokens gives us more data to work with. On the other hand, we could spot inconsistencies in a person's behavior (from the image) and speech (from the audio), which can spark a lot of discussions.
+
+Using the smallest possible units to find statistical patterns in the videos is the perfect logic for machine brains, but are the results still interpretable and useful for humans? In particular, can AI algorithms obtain higher-level insights, such as the goal of agents' interactions and the power dynamics on the spot, from static and relatively discontinuous inputs? This is something that I'd like to explore further.
+
+In addition, despite the advancements of AI, video research still requires a significant amount of human involvement. Tasks such as setting research goals, watching and discussing videos, and developing coding and analysis strategies rely heavily on the researchers themselves. However, AI can help reduce the amount of manual labor required and free up researchers to focus on more meaningful work in their projects. By using AI to assist with tedious tasks, researchers can devote more time and energy to exploring new research questions and generating innovative insights.
+
+# Setup -- `ffmpeg`
+
+In this project, I am going to replicate the analysis I read from [this website](https://books.psychstat.org/rdata/video-data.html) using the programming language R. It wasn't until I dived into this topic that I realized there were far fewer resources available of large-scale video analysis in R than other programming languages such as Python. So if I were to start this project again, I might go with Python instead.
+
+To conduct video analysis in R, one would need to install a tool called `ffmpeg`. It is an open-source software that specializes in video manipulation. The setup instructions are included in the Readme file, and installation took me hours to complete, due to path-pointing issues. But once installed, `ffmpeg` is a fast and easy software. It is a command line tool though, meaning it is used in the terminal.
+
+Even though many of the features of `ffmpeg` should be covered by other software with a more beautiful interface, I found these commands from `ffmpeg` to be very useful for this project:
+
+`ffmpeg -i input.mp4 output.mov`
+
+This command takes `input.mp4` as the input file (`-i` means the file following it is the input), and converts it into a `.mov` file. `ffmpeg` supports conversion of all mainstream video formats.
+
+`ffmpeg -i low_quality_video.mp4 -crf 15 high_quality_video.mp4`
+
+Sometimes, the video we collect has a low quality, due to technical issues or light conditions. `ffmpeg` has a flag called `-crf`. If we specify a small number (\<20), it'll increase the quality of the video. But, the increased quality comes with the cost of increased file size. On the contrary, if we have a video that is too large to store, we could specify a larger number (\>27) after `-crf` to reduce video quality and size.
+
+`ffmpeg -ss 00:05:00 -i long_video.mp4 -t 00:01:00 -c:v copy -c:a copy trimmed_video.mp4`
+
+This command chops long_video.mp4 and keeps the segment that starts from 00:05:00 and ends 00:01:00 later (i.e. from the fifth to the sixth minute).
+
+That's all I want to introduce `ffmpeg`. I learned its basic functions from these two resources: [this website](https://www.labnol.org/internet/useful-ffmpeg-commands/28490/) and [this Youtube video](https://www.youtube.com/watch?v=MPV7JXTWPWI).
+
+# Video Processing
+
+Analyzing video frames in R requires a package called `imager`. After a few trials, it occurred to me that the R environment can only take a very small chunk of the video. In my case, it's one second. The code below uses `ffmpeg` to cut the video into a one-second section.
+
+```{r}
+system('/usr/local/bin/ffmpeg/ffmpeg -hide_banner  -ss 00:03:51 -i videos/interview.mpt  -t 00:00:01 -c:v copy -c:a copy videos/short.mp4')
+
+#system('/usr/local/bin/ffmpeg/ffmpeg -hide_banner  -ss 00:24:23 -i videos/kindergarten_play.mov  -t 00:00:01 -c:v copy -c:a copy videos/large_clip.mp4')
+
+#system('/usr/local/bin/ffmpeg/ffmpeg -hide_banner  -ss 00:00:00 -i videos/short.mp4  -t 00:00:01 -c:v copy -c:a copy videos/large_clip.mp4')
+```
+
+In order to reduce the video size as much as possible, I specified `fps = 1` when loading the video, which means for each second, only one frame is generated, as opposed to standard videos that come with 24 frames per second.
+
+```{r}
+clip_interview <- load.video('videos/short.mp4', fps=1)
+```
+
+Here, I assigned `x` to one (and the only) frame. Plotting `x` shows this static image.
+
+```{r}
+x <- frame(clip_interview, 1)
+plot(x)
+```
+
+# Emotion Detection Using APIs
+
+After obtaining the image, I moved on to the next step, which is using existing API to run the facial detection algorithm.
+
+First, I followed the book to use [Face API](https://learn.microsoft.com/en-us/azure/cognitive-services/computer-vision/overview-identity) in Microsoft Azure. Little did I know it would be such a journey.
+
+Face API has several features:
+
+-   It can detect human faces in an image and return the rectangle coordinates of their locations
+
+-   It can extract a set of face-related attributes, such as head pose, age, emotion, facial hair, and glasses. Emotion is the main label I want to retrieve.
+
+-   It can identify and verify people from their face database.
+
+However, last year, Microsoft made changes to its policies. Most of its features are no longer open to public, and are limited to users that pass their check. In addition, face-related attributes detection will be discontinued later this year, as misusing the algorithm can lead to stereotypes and discrimination.
+
+While it is frustrating that this API can no longer serve my purpose, the issue raises a lot of interesting questions.
+
+First, when I send photos to API, I am not entirely aware of its data security measures. From its documentation, after a request is processed by the algorithm, the photo itself is destroyed immediately, but the face features will be kept in the database for a while, and an ID associated with the face will be stored as well. What's the implication of such a data policy for video researchers? Should the participants be informed that their footage will be sent to an API?
+
+Secondly, while not mentioned, the algorithm itself carries a lot of biases, due to the data it is fed while being trained. If the emotion detection feature still works, what measures should video researchers take to minimize the influence of algorithmic biases?
+
+Lastly, I can't stop thinking that humans are probably as biased as machines. When researchers code and label their videos, how much personal judgment could be biased or culturally insensitive? For example, in my culture, people tend to hide their strong emotions from others, and therefore their emotional expressions are not as explicit as others. Will human researchers and artificial intelligence be able to pick up these cultural nuances? And again, what can we do to address the issues?
+
+```{r eval = F}
+
+# Define your Azure Face API endpoint and key
+endpoint <- "https://educ450b.cognitiveservices.azure.com/face/v1.0/detect"
+key <- "a771adeb7a0640618559b9ceaa682cc1"
+
+# Define the image URL to analyze
+#image_data <- as.raw(as.vector(x))
+#image_base64 <- base64encode(image_data)
+#jpeg("images/image_01.jpg", quality = 90)
+#plot(as.raster(frame(interview, 1)))
+#dev.off()
+
+#image_data <- readBin("images/image_01.jpg", what = "raw", n = file.info("images/image_01.jpg")$size)
+#image_base64 <- base64_enc(image_data)
+
+#img_raw <- as.raw(as.vector(clip_interview))
+#image_base64 <- base64encode(img_raw)
+
+#image <- upload_file("images/image_01.jpg")
+
+#body <- list(url = "https://i.ibb.co/KDNB2Xb/image-01.jpg")
+#body_json <- jsonlite::toJSON(body, auto_unbox = TRUE)
+
+# Construct the API request
+#headers <- c("Content-Type" = "application/json", "Ocp-Apim-Subscription-Key" = key)
+#params <- list(returnFacelandmarks="true")
+#body <- upload_file("images/image_01.jpg")
+#response <- POST(endpoint, add_headers(headers), query = params, body = body_json, encode = "json")
+
+baseUrl <- "https://educ450b.cognitiveservices.azure.com/face/v1.0/detect"
+q <- "?returnFacelandmarks=true"
+url1 <- paste0(baseUrl, q)
+image_url <-  "https://i.ibb.co/KDNB2Xb/image-01.jpg"
+
+f <- tempfile()
+download.file(image_url, f, mode = "wb")
+pic <- upload_file(f)
+
+response = POST(url=url1, body=pic, add_headers(.headers = 
+
+                c('Content-Type'='application/octet-stream', 'Ocp-Apim-Subscription-Key'='a771adeb7a0640618559b9ceaa682cc1')))
+
+# Parse the JSON response
+faces <- content(response, as = "text", encoding = "UTF-8")
+faces <- jsonlite::fromJSON(faces)
+```
+
+```{r eval = F}
+print(faces)
+```
+
+Nevertheless, I was still able to use Face API to locate people's face(s) in the picture. Strangely, my R code above could not find human faces in this picture, but when I tried to use their online API, I was able to get the face coordinates of the child. In the image below, I used the coordinates sent by API to locate the child's face and pupils.
+
+It amazes me that after being reduced to static images, videos can even be represented by the coordinates in the images. By tracking these numbers over time, we (or AI) can infer the behavioral patterns of the person.
+
+```{r}
+plot(x)
+# face rectangle
+rect(235, 150+40, 235+38, 150, col=NA, border="magenta", lwd=2)
+# pupil left
+points(247.2, 171.4, col = "red")
+# pupil right
+points(264.5, 172.2, col = "red")
+```
+
+I then went on searching for another API capable of facial feature detection. I found an API called [Hydra AI](https://rapidapi.com/alessandro.lamberti98/api/hydra-ai) that supposedly can return me the person's age, gender, emotions, etc. However, the algorithm had trouble finding the person in the picture, so I wasn't able to retrieve the emotions of the child.
+
+```{r}
+url <- "https://hydra-ai.p.rapidapi.com/dev/faces/analyse/"
+save.image(frame(clip_interview,1), 'images/image_01.jpg')
+image_data <- readBin("images/image_01.jpg", what = "raw", n = file.info("images/image_01.jpg")$size)
+image_base64 <- base64encode(image_data)
+
+payload <- toJSON(list(image = image_base64), auto_unbox = TRUE)
+
+
+encode <- "json"
+
+response <- VERB("POST", url, body = payload, add_headers('X-RapidAPI-Key' = '24c0de038amshe1a63279c27b4a1p168793jsndd1d241389de', 'X-RapidAPI-Host' = 'hydra-ai.p.rapidapi.com'), content_type("application/json"), encode = encode)
+
+faces <- content(response, "text")
 ```
 
 ```{r}
-system('/usr/local/bin/ffmpeg/ffmpeg -hide_banner  -i videos/interview.mp4')
+fromJSON(faces)
+```
+
+But when I was trying this API, I noticed one of its other features: image classification and object identification. In other words, when given the picture, the API can tell the most likely locations the photo is shot, and the objects that show up in the picture. For instance, the algorithm believes there's a 99% chance that this picture was taken in a library, which is a valid guess. (Strangely, a person is detected here) I think this feature is potentially useful for automating the process of segmenting the videos. Sometimes, the start and end of a segment are marked by changes in the environment. For example, students coming into the classroom and teachers walking by to join group discussions are good markers of a transition. These changes should be easily detectable by an AI, thus helping with video parsing.
+
+```{r}
+url <- "https://hydra-ai.p.rapidapi.com/dev/image-analysis/multilabel/"
+
+response <- VERB("POST", url, body = payload, add_headers('X-RapidAPI-Key' = '24c0de038amshe1a63279c27b4a1p168793jsndd1d241389de', 'X-RapidAPI-Host' = 'hydra-ai.p.rapidapi.com'), content_type("application/json"), encode = encode)
+
+labels <- content(response, "text")
 ```
 
 ```{r}
-interview <- load.video('videos/interview.mp4')
+fromJSON(labels)
 ```
 
+# Conclusion
+
+In conclusion, while my attempts at using APIs to detect participant emotion weren't very successful, I still think there is great potential for computer vision and image classification methods to give new perspectives to video analysis. In addition, even though I didn't explore the audio, speech analysis can also be useful. But, when adopting these methods, researchers should be clear about the potential data privacy issues and algorithmic biases, and should devise protocols to address such issues.
+
+And finally, throughout my exploration, I noticed some of the technical issues: 
+
+* To optimally capture a person's behavior and emotion, it's best if they are facing forward with their facial features visible, because finding faces involves locating the person's pupils, nose, mouth, etc. However, having a static posture is very unlikely guaranteed.
+
+-   I am not sure how well the algorithm can capture more than one person. Given that even my attempt to find the single person in the picture could fail, I am not very optimistic.
+
+-   Due to the reasons above, researchers should plan well ahead of time if they are interested in using these AI methods. What research questions can an AI algorithm answer but are difficult for human researchers to investigate? How should the videos be filmed in order for AI to work the best?
+
+-   Lastly, I think it might be worth it to point out the cost of these APIs. I was using their free accounts, so my usage was very restricted. Running these APIs at scale comes with a cost. Face API at Microsoft Azure costs \$0.40 USD per 1000 requests. Hydra AI users can get a monthly subscription at \$5.99 USD, which includes 1000 free requests per month, plus \$0.008 for any additional request. It also has a rate limit of one request per second, no matter if you pay for its service.
